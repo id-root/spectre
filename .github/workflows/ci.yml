@@ -1,0 +1,48 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    # 1. Install System Dependencies required for rquest (TLS) and headless_chrome
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake pkg-config libssl-dev chromium-browser
+
+    # 2. Setup Cache to speed up future builds
+    - name: Cache Cargo Registry
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    # 3. Check for syntax errors (Fast)
+    - name: Cargo Check
+      run: cargo check --verbose
+
+    # 4. Run Tests (if you add unit tests later)
+    - name: Run Tests
+      run: cargo test --verbose
+
+    # 5. Ensure Release Build Works
+    - name: Build Release
+      run: cargo build --release --verbose
