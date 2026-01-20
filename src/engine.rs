@@ -34,7 +34,6 @@ pub struct NetworkConfig {
 }
 
 // --- Enterprise Logger ---
-// Thread-safe logger that writes detailed JSONL logs to a session file.
 #[derive(Clone)]
 pub struct SpectreLogger {
     file: Arc<Mutex<File>>,
@@ -42,14 +41,10 @@ pub struct SpectreLogger {
 
 impl SpectreLogger {
     pub fn new() -> Result<Self> {
-        // 1. Ensure logs directory exists
         fs::create_dir_all("logs").context("Failed to create logs directory")?;
-
-        // 2. Create a unique session filename
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         let filename = format!("logs/session_{}.jsonl", timestamp);
         
-        // 3. Open file
         let file = OpenOptions::new()
             .create(true)
             .append(true)
@@ -65,7 +60,6 @@ impl SpectreLogger {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
         let meta_clean = meta.unwrap_or("null");
         
-        // JSONL Format: {"ts": 12345, "worker": "W1", "event": "CONN", "msg": "...", "meta": "..."}
         let log_line = format!(
             "{{\"ts\": {}, \"worker\": \"{}\", \"event\": \"{}\", \"msg\": \"{}\", \"meta\": {}}}\n",
             timestamp, worker_id, event, msg, meta_clean
@@ -83,9 +77,14 @@ pub struct BrowserSolver;
 impl BrowserSolver {
     fn find_chrome_binary() -> Option<PathBuf> {
         let possible_paths = [
-            "/usr/bin/chromium", "/usr/bin/chromium-browser",
-            "/usr/bin/google-chrome", "/snap/bin/chromium", "/bin/chromium",
+            "/usr/bin/chromium", 
+            "/usr/bin/chromium-browser",
+            "/usr/bin/google-chrome", 
+            "/snap/bin/chromium", 
+            "/bin/chromium",
             "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+            "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+            "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
         ];
         for path_str in possible_paths {
             if Path::new(path_str).exists() { return Some(PathBuf::from(path_str)); }
@@ -93,13 +92,18 @@ impl BrowserSolver {
         None
     }
 
-    // Now accepts the Logger to log internal events
     pub fn solve(url: &str, proxy: Option<&str>, logger: &SpectreLogger, worker_id: &str) -> Result<String> {
         logger.log(worker_id, "BROWSER_INIT", "Initializing Headless Chrome", None);
 
+        // Optimized flags for Windows/VirtualBox and WAF evasion
         let mut args = vec![
-            "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
-            "--window-size=1920,1080", "--disable-blink-features=AutomationControlled",
+            "--no-sandbox", 
+            "--disable-gpu", 
+            "--disable-dev-shm-usage",
+            "--window-size=1920,1080", 
+            "--disable-blink-features=AutomationControlled",
+        
+            "--disable-software-rasterizer",
         ];
 
         let proxy_arg;
@@ -121,7 +125,6 @@ impl BrowserSolver {
 
         logger.log(worker_id, "BROWSER_CONFIG", "Configuring Network & UserAgent", None);
 
-        // Use struct syntax for Network::Enable
         tab.call_method(Network::Enable {
             max_total_buffer_size: None,
             max_resource_buffer_size: None,
@@ -140,23 +143,39 @@ impl BrowserSolver {
         logger.log(worker_id, "BROWSER_NAV", "Navigating to Target", Some(&format!("\"{}\"", url)));
         tab.navigate_to(url)?;
         
-        std::thread::sleep(Duration::from_secs(3)); 
+        // DYNAMIC POLLING: Fixes the 3s race condition and Windows false negatives
+        let start_time = Instant::now();
+        let timeout = Duration::from_secs(25); 
+        let mut challenge_result = None;
 
-        let content = tab.get_content()?;
-        let cookies = tab.get_cookies()?;
-        
-        if content.contains("Access Granted") || content.contains("Welcome") {
-            if let Some(cookie) = cookies.iter().find(|c| c.name == "waf_clearance") {
-                let cookie_val = format!("{}={}", cookie.name, cookie.value);
-                logger.log(worker_id, "BROWSER_SUCCESS", "Challenge Solved & Cookie Extracted", Some(&format!("\"{}\"", cookie_val)));
-                return Ok(cookie_val);
+        while start_time.elapsed() < timeout {
+            // 1. Primary Success Indicator: WAF Clearance Cookie
+            if let Ok(cookies) = tab.get_cookies() {
+                if let Some(cookie) = cookies.iter().find(|c| c.name == "waf_clearance") {
+                    challenge_result = Some(format!("{}={}", cookie.name, cookie.value));
+                    break;
+                }
             }
-            logger.log(worker_id, "BROWSER_SUCCESS", "Access Granted (No Cookie)", None);
-            return Ok("Success (No Cookie)".to_string());
+
+            // 2. Secondary Success Indicator: DOM Content
+            if let Ok(content) = tab.get_content() {
+                if content.contains("Access Granted") || content.contains("Welcome") {
+                    challenge_result = Some("Success (Verified via DOM)".to_string());
+                    break;
+                }
+            }
+            
+            // Wait to allow JS execution/Rendering
+            std::thread::sleep(Duration::from_millis(500));
         }
 
-        logger.log(worker_id, "BROWSER_FAIL", "Browser could not bypass challenge", None);
-        Err(anyhow!("Browser failed to solve challenge"))
+        if let Some(result_str) = challenge_result {
+            logger.log(worker_id, "BROWSER_SUCCESS", "Challenge Solved", Some(&format!("\"{}\"", result_str)));
+            return Ok(result_str);
+        }
+
+        logger.log(worker_id, "BROWSER_FAIL", "Browser timed out waiting for challenge", None);
+        Err(anyhow!("Browser failed to solve challenge within timeout"))
     }
 }
 
@@ -309,14 +328,12 @@ pub struct EngineStats {
 pub struct CoreEngine {
     config: Config,
     stats: EngineStats,
-    logger: Arc<SpectreLogger>, // Main Logger Instance
+    logger: Arc<SpectreLogger>, 
 }
 
 impl CoreEngine {
     pub fn new(config: Config) -> Self {
-        // Init Logger, fallback to panic if logs can't be created (Enterprise req)
         let logger = Arc::new(SpectreLogger::new().expect("CRITICAL: Failed to initialize logging subsystem"));
-        
         Self { 
             config, 
             stats: EngineStats::default(),
@@ -329,13 +346,12 @@ impl CoreEngine {
     }
 
     pub async fn run(&self) -> Result<()> {
-        let (tx, _rx) = mpsc::channel::<()>(self.config.general.concurrency);
+        let (_tx, _rx) = mpsc::channel::<()>(self.config.general.concurrency);
         let grid_manager = Arc::new(Mutex::new(GridManager::new(self.config.network.proxies.clone())));
         let client_factory = Arc::new(ClientFactory::new(self.config.profiles.clone()));
         let target_url = self.config.general.target_url.clone();
 
         for i in 0..self.config.general.concurrency {
-            let _tx = tx.clone();
             let grid_manager = grid_manager.clone();
             let client_factory = client_factory.clone();
             let target_url = target_url.clone();
@@ -351,25 +367,19 @@ impl CoreEngine {
                     };
 
                     if let Some(proxy_url) = proxy_opt {
-                        // LOG: Request Start
                         logger.log(&worker_id, "REQ_START", "Starting request cycle", Some(&format!("\"{}\"", proxy_url)));
-                        
                         let client_res = client_factory.create_client("desktop", Some(&proxy_url));
                         
                         match client_res {
                             Ok(client) => {
                                 stats.total_requests.fetch_add(1, Ordering::Relaxed);
-                                
-                                // LOG: Connection Established (Implied by successful send)
                                 match client.get(&target_url).send().await {
                                     Ok(resp) => {
                                         let status = resp.status().as_u16();
-                                        // LOG: Received Headers/Status
                                         logger.log(&worker_id, "CONN_ESTABLISHED", "Response Received", Some(&format!("{{\"status\": {}}}", status)));
                                         
                                         let body_bytes = resp.bytes().await.unwrap_or_default();
                                         let body_str = String::from_utf8_lossy(&body_bytes);
-                                        
                                         let verdict = ResponseAnalyzer::analyze(status, &body_str);
 
                                         match verdict {
@@ -386,9 +396,7 @@ impl CoreEngine {
                                                 gm.report_failure(&proxy_url);
                                             },
                                             ResponseStatus::JsChallenge => {
-                                                // LOG: Challenge Detected
                                                 logger.log(&worker_id, "VERDICT_CHALLENGE", "JS Challenge Detected. Escalating to Browser.", None);
-                                                
                                                 info!("JS Challenge detected on {}. Launching Browser...", proxy_url);
                                                 
                                                 let url_clone = target_url.clone();
