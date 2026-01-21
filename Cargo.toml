@@ -1,12 +1,11 @@
 [package]
 name = "spectre"
-version = "0.2.0" # Version bump!
+version = "0.2.0" 
 edition = "2021"
 
 [dependencies]
 tokio = { version = "1.36", features = ["full"] }
-# rquest is removed; we don't need it anymore
-# rquest = ... 
+
 headless_chrome = { version = "1.0", features = ["fetch"] }
 ratatui = "0.26"
 serde = { version = "1.0", features = ["derive"] }
