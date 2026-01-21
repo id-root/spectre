@@ -154,6 +154,8 @@ cd spectre-linux-x86_64
 chmod +x spectre
 ./spectre
 ```
+> **Note:**
+> **_Press q to quit_**
 
 
 **Windows:**
@@ -194,6 +196,8 @@ Ensure `profiles.toml` is in the root directory.
 cargo run --release
 
 ```
+> **Note:**
+> **_Press q to quit_**
 
 ---
 
