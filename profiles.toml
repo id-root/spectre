@@ -1,5 +1,4 @@
 [general]
-# Target the VM's IP address
 target_url = "http://10.165.76.71:9000"
 concurrency = 2
 
@@ -8,7 +7,7 @@ desktop = "chrome_130"
 mobile = "safari_16"
 
 [network]
-# Use the VM's IP for the proxy as well
+
 proxies = [
     "http://10.165.76.71:8080",
 ]
