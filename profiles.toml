@@ -1,7 +1,7 @@
 [general]
 target_url = "http://10.165.76.71:9000"
 concurrency = 2
-
+debug_mode= true
 [profiles]
 desktop = "chrome_130"
 mobile = "safari_16"
