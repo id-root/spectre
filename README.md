@@ -1,9 +1,10 @@
 # Spectre
 
 ![Spectre](https://img.shields.io/badge/Status-Production%20Ready-green)
-![Rust](https://img.shields.io/badge/Language-Rust-orange)
-![Waf-Bypass](https://img.shields.io/badge/Capability-WAF%20Bypass-red)
-![License](https://img.shields.io/badge/License-MIT-blue)
+![Rust](https://img.shields.io/badge/Language-Rust-black)
+![Waf-Bypass](https://img.shields.io/badge/Capability-WAF%20Bypass-black)
+![Version](https://img.shields.io/badge/version-3.0.0-black.svg)
+![License](https://img.shields.io/badge/License-MIT-black)
 
 
 **Spectre** is a high-performance, ethical security testing tool designed for authorized WAF resilience testing and vulnerability assessment. It combines a high-concurrency async engine with advanced evasion capabilities (TLS fingerprinting, browser masquerading) to simulate real-world traffic patterns.
