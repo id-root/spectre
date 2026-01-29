@@ -49,6 +49,9 @@ docker run --rm spectre --help
 
 ## Usage Guide
 
+> [!Note]
+> Make sure the `profiles.toml` is present in the same directory as the binary.
+
 ### 1. Basic Scan
 Run a basic GET request scan against a target using a list of payloads.
 ```bash
